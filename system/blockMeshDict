@@ -1,0 +1,148 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  dev
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+convertToMeters 1;
+
+#include "../simParas"
+
+// l1	#calc"$r2*sqrt( ($PI*tan(60.0*$PI/180.0))/(6.0*$gamma) )";
+l1	#calc"$r2*sqrt( 1.0/$gamma )";
+
+deg30	#calc"30.0*$PI/180.0";
+sin30	#calc"sin($deg30)";
+cos30	#calc"cos($deg30)";
+tan30	#calc"tan($deg30)";
+
+vertices
+(
+    ($r2		0			0) //0
+    ($l1		0			0)
+    ($l1		#calc"$l1*$tan30"	0)
+    (#calc"$r2*$cos30"	#calc"$r2*$sin30"	0)
+    ($r2		0			$h)//4
+    ($l1		0			$h)
+    ($l1		#calc"$l1*$tan30"	$h)
+    (#calc"$r2*$cos30"	#calc"$r2*$sin30"	$h)
+
+    // (0 			$r2			0) //8
+    // (0 			#calc"$l1/$cos30"	0)
+    // (0 			$r2			$h)
+    // (0 			#calc"$l1/$cos30"	$h)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7)
+    (#calc"int($rhoNorm*($l1-$r2))" #calc"int($rhoRad/12.0)" #calc"int($rhoZ*$h)")
+    simpleGrading (
+	$grRate
+	// (
+	//     (0.5 0.75 $grRate)
+	//     (0.5 0.25 1)
+	// )
+	1
+	1
+    )
+
+    // hex (3 2 9 8 7 6 11 10)
+    // (#calc"int($rhoNorm*($l1-$r2))" #calc"int($rhoRad/6.0)" #calc"int($rhoZ*$h)")
+    // simpleGrading (
+    // 	(
+    // 	    (0.5 0.75 $grRate)
+    // 	    (0.5 0.25 1)
+    // 	)
+    // 	1
+    // 	1
+    // )
+);
+
+edges
+(
+    arc 0 3 (0 $r2  0)
+    // arc 8 3 ($r2 0  0)
+    arc 4 7 (0 $r2  $h)
+    // arc 10 7 ($r2 0  $h)
+);
+
+boundary
+(
+    inlet
+    {
+	type mappedPatch;
+	sampleMode 	nearestPatchFace;
+	samplePatch	"outlet";
+	offset          ( 0 0 $h);
+        faces
+        (
+            (0 1 2 3)
+            // (2 3 8 9)
+        );
+    }
+    outlet
+    {
+        type patch;
+        faces
+        (
+	    (4 5 6 7)
+	    // (7 6 11 10)
+	);
+    }
+    membrane
+    {
+        type patch;
+        faces
+        (
+    	    (0 3 7 4)
+    	    // (8 3 7 10)
+    	);
+    }
+    s0
+    {
+    	type symmetry;
+    	faces
+        (
+    	    (7 6 2 3)
+    	    // (10 11 9 8)
+    	);
+    }
+    // sym1
+    // {
+    // 	type symmetryPlane;
+    // 	faces
+    //     (
+    // 	    (11 6 2 9)
+    // 	);
+    // }
+    sym2
+    {
+    	type symmetryPlane;
+    	faces
+        (
+    	    (6 5 1 2)
+    	);
+    }
+    sym3
+    {
+    	type symmetryPlane;
+    	faces
+        (
+    	    (0 1 5 4)
+    	);
+    }
+    
+);
+
+// ************************************************************************* //

@@ -1,0 +1,319 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  dev
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      s;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 0 0 0 0 0 0];
+
+#include	"../simParas"
+
+drwCtr_		#calc"$drawCtr*58.44e-3"; // conversion from mol/l to mass fraction
+
+// internalField   uniform 0;
+internalField   uniform $drwCtr_;
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+	value		uniform $drwCtr_;
+    }
+
+    outlet
+    {
+        type            zeroGradient;
+    }
+
+    s0
+    {
+	type		symmetry;
+    }
+
+    "sym.*"
+    {
+        type            symmetryPlane;
+    }
+
+    membrane
+    {
+    	type 		codedFixedValue;
+	value		uniform $drwCtr_;
+	name		membrCtr;
+
+	codeInclude
+    	    #{
+#include "fvCFD.H"
+    	    #};
+	    
+    	    codeOptions
+    	    #{
+	    -I$(LIB_SRC)/finiteVolume/lnInclude		\
+	    -I$(LIB_SRC)/meshTools/lnInclude
+    	    #};
+	    
+    	    codeLibs
+    	    #{
+    		-lmeshTools			\
+    		-lfiniteVolume
+    	    #};
+
+	
+    	code
+    	#{
+	const fvMesh& mesh = patch().boundaryMesh().mesh();
+	const label patchID = mesh.boundaryMesh().findPatchID("membrane");
+	const fvPatch& boundaryPatch = patch();
+	const vectorField fvPF_jw = boundaryPatch.lookupPatchField<volVectorField, vector>("U");
+	const fvPatchField fvPF_s = boundaryPatch.lookupPatchField<volScalarField, scalar>("s");
+	const vectorField fNs = boundaryPatch.nf();
+	const scalarField delta = 1.0/mesh.deltaCoeffs().boundaryField()[patchID];
+
+	const scalarField newCtr = fvPF_s.patchInternalField();
+	
+	string casePath = Foam::getEnv("FOAM_CASE");
+	string userDictPath = casePath + "/simParas";
+	IFstream ifs (userDictPath);
+	dictionary userDict (ifs);
+	
+	bool dumpParas	= false;
+
+	scalar r1		= userDict.lookupOrDefault("r1", -1.0);
+	scalar r2		= userDict.lookupOrDefault("r2", -1.0);
+	scalar D 		= userDict.lookupOrDefault("diffCoeff", -1.0);
+	scalar tau		= userDict.lookupOrDefault("turtuosity", -1.0);
+	scalar eps		= userDict.lookupOrDefault("porosity", -1.0);
+	scalar A		= userDict.lookupOrDefault("membr_A", -1.0);
+	scalar B		= userDict.lookupOrDefault("membr_B", -1.0);
+
+	if(dumpParas){
+	    Info << "BC paras:" << endl;
+	    Info << "\t r1 = " << r1 << endl;
+	    Info << "\t r2 = " << r2 << endl;
+	    Info << "\t D = " << D << endl;
+	    Info << "\t tau = " << tau << endl;
+	    Info << "\t eps = " << eps << endl;
+	    Info << "\t A = " << A << endl;
+	    Info << "\t B = " << B << endl;
+	}
+
+	scalar A_		= A*1.0/3.6*1e-11;	// [m/(s Pa)]
+	scalar B_		= B*1.0/3.6*1e-6;	// [m/s]
+	scalar rho_m		= 1.0e3;
+	scalarField& field = *this;
+	scalar jw, js, d, w_c;
+	
+	forAll(field, i){
+	    // mass fraction at boundary cell center 
+	    w_c 	= newCtr[i];
+
+	    // boundary distance to next cell center
+	    d 	= delta[i];
+	    
+	    // velocity at outer surface:
+	    jw 	= fabs(fvPF_jw[i][0]*fNs[i][0]+fvPF_jw[i][1]*fNs[i][1]+fvPF_jw[i][2]*fNs[i][2]);
+	    
+	    // reverse salt flux outer surface:
+	    js	= B_/(A_*8.051e7)*jw;
+	    
+	    // new surface concentration (mass fraction):	
+	    field[i] = (w_c - js/rho_m*d/D)/(1.0 + jw*d/D);
+
+	    if(i==20 || i==200 || i==500 || i==800){
+		Info << "i = " << i << "\tjw_r2 = " << jw << "\t js_r2 = " << js << "\t ctr_r2_cell = " << w_c << "\t delta = " << d << endl;
+	    }
+	}
+
+    	#};
+    }
+
+
+    
+    // membrane
+    // {
+    // 	type            fixedGradient;
+    // 	// value		uniform $drwCtr;
+    // 	gradient	#codeStream
+    // 	{
+    // 	    codeInclude
+    // 	    #{
+    // 		#include "fvCFD.H"
+    // 	    #};
+
+    // 	    codeOptions
+    // 	    #{
+    // 		-I$(LIB_SRC)/finiteVolume/lnInclude	\
+    // 		-I$(LIB_SRC)/meshTools/lnInclude
+    // 	    #};
+
+    // 	    codeLibs
+    // 	    #{
+    // 		-lmeshTools			\
+    // 		-lfiniteVolume
+    // 	    #};
+
+    // 	    code
+    // 	    #{
+		
+    // 		string casePath = Foam::getEnv("FOAM_CASE");
+    // 	    string userDictPath = casePath + "/simParas";
+    // 	    IFstream ifs (userDictPath);
+    // 	    dictionary userDict (ifs);
+
+    // 	    bool dumpParas	= true;
+	    
+    // 	    scalar r1		= userDict.lookupOrDefault("r1", -1.0);
+    // 	    scalar r2		= userDict.lookupOrDefault("r2", -1.0);
+    // 	    scalar D 		= userDict.lookupOrDefault("diffCoeff", -1.0);
+    // 	    scalar tau		= userDict.lookupOrDefault("turtuosity", -1.0);
+    // 	    scalar eps		= userDict.lookupOrDefault("porosity", -1.0);
+    // 	    scalar A		= userDict.lookupOrDefault("membr_A", -1.0);
+    // 	    scalar B		= userDict.lookupOrDefault("membr_B", -1.0);
+    // 	    scalar ctrD		= userDict.lookupOrDefault("drawCtr", -1.0);
+
+    // 	    if(dumpParas){
+    // 		Info << "BC paras:" << endl;
+    // 		Info << "\t r1 = " << r1 << endl;
+    // 		Info << "\t r2 = " << r2 << endl;
+    // 		Info << "\t D = " << D << endl;
+    // 		Info << "\t tau = " << tau << endl;
+    // 		Info << "\t eps = " << eps << endl;
+    // 		Info << "\t A = " << A << endl;
+    // 		Info << "\t B = " << B << endl;
+    // 		Info << "\t ctrD = " << ctrD << endl;
+    // 	}
+
+
+    // 		const IOdictionary& d = static_cast<const IOdictionary&>
+    // 		(
+    //      	    dict.parent().parent()
+    // 	        );
+
+    // 	    	const fvMesh& mesh = refCast<const fvMesh>(d.db());
+    // 	        const label id = mesh.boundary().findPatchID("membrane");
+    // 	        const fvPatch& patch = mesh.boundary()[id];
+    // 	        scalarField s(patch.size(), 0);
+
+    // 		// if (mesh.foundObject<volScalarField>("s")){
+    // 		    // const fvPatchField<vector>& fvPF_vel =
+    // 		    // 	patch.lookupPatchField<volVectorField, scalar>("U") ;
+
+    // 		    // const vectorField vel = fvPF_vel.patchInternalField();
+    // 		//     Info<< "moin  " << ctr.size() <<endl;
+    // 		//     Info << ctr[0] << "   " << ctr[40] << endl;
+
+
+
+    // 		//     forAll(s, i) //equivalent to for (int i=0; patch.size()<i; i++)
+    // 		//     {
+    // 		// 	s[i] = -1e-5;
+    // 		//     }
+    // 		// }
+    // 		// else{
+    // 		//     Info<< "moin"<< endl;
+    // 		//     Info<< "moin"<< endl;
+		    		
+    // 		    forAll(s, i) //equivalent to for (int i=0; patch.size()<i; i++)
+    // 		    {
+    // 	    // scalar jw = sqrt(vel[i][0]*vel[i][0] + vel[i][1]*vel[i][1] + vel[i][2]*vel[i][2]);
+    // 	    // s[i] = r1*jw/(D*r2);
+    // 	    // Info << s[i] << endl;
+    // 			s[i] = 0.1;
+    // 		    }
+    // 		// }
+    // 	    s.writeEntry("", os);
+    // 	    #};
+    // 	};
+    // }
+    
+    // membrane
+    // {
+    // 	type            codedFixedValue;
+    // 	value		uniform $drwCtr;
+    // 	redirectType	membrSoluteBC;
+    // 	codeInclude
+    // 	    #{
+    // 		#include "fvCFD.H"
+    //             #include "OSspecific.H"
+    // 		#include "IFstream.H"
+    // 	    #};
+
+    // 	    codeOptions
+    // 	    #{
+    // 		-I$(LIB_SRC)/finiteVolume/lnInclude	\
+    // 		-I$(LIB_SRC)/meshTools/lnInclude
+    // 	    #};
+
+    // 	    code
+    // 	    #{
+
+    // 	    string casePath = Foam::getEnv("FOAM_CASE");
+    // 	    string userDictPath = casePath + "/simParas";
+    // 	    IFstream ifs (userDictPath);
+    // 	    dictionary userDict (ifs);
+
+    // 	    bool dumpParas	= false;
+	    
+    // 	    scalar r1		= userDict.lookupOrDefault("r1", -1.0);
+    // 	    scalar r2		= userDict.lookupOrDefault("r2", -1.0);
+    // 	    scalar D 		= userDict.lookupOrDefault("diffCoeff", -1.0);
+    // 	    scalar tau		= userDict.lookupOrDefault("turtuosity", -1.0);
+    // 	    scalar eps		= userDict.lookupOrDefault("porosity", -1.0);
+    // 	    scalar A		= userDict.lookupOrDefault("membr_A", -1.0);
+    // 	    scalar B		= userDict.lookupOrDefault("membr_B", -1.0);
+    // 	    scalar ctrD		= userDict.lookupOrDefault("drawCtr", -1.0);
+
+    // 	    if(dumpParas){
+    // 		Info << "BC paras:" << endl;
+    // 		Info << "\t r1 = " << r1 << endl;
+    // 		Info << "\t r2 = " << r2 << endl;
+    // 		Info << "\t D = " << D << endl;
+    // 		Info << "\t tau = " << tau << endl;
+    // 		Info << "\t eps = " << eps << endl;
+    // 		Info << "\t A = " << A << endl;
+    // 		Info << "\t B = " << B << endl;
+    // 		Info << "\t ctrD = " << ctrD << endl;
+    // 	    }
+
+    // 	    scalar A_		= A*1.0/3.6*1e-11;	// [m/(s Pa)]
+    // 	    scalar B_		= B*1.0/3.6*1e-6;	// [m/s]
+    // 	    scalar ctrD_	= ctrD*5.88e-3;
+    // 	    scalar zeta		= 8.051e7;
+    // 	    const fvPatch& boundaryPatch = patch();
+    // 	    scalarField& field = *this; 
+	    
+    // 	    const vectorField fvPF_jw = boundaryPatch.lookupPatchField<volVectorField, vector>("U");
+    // 	    const vectorField fNs = boundaryPatch.nf();
+	    
+    // 	    forAll(field, i) //equivalent to for (int i=0; patch.size()<i; i++)
+    // 	    {
+    // 		scalar ctrDD	= field[i];
+		
+    // 		scalar jw 	= fabs(fvPF_jw[i][0]*fNs[i][0]+fvPF_jw[i][1]*fNs[i][1]+fvPF_jw[i][2]*fNs[i][2]);
+		
+    // 		scalar ctrM 	=  ctrDD - B_/(A_*zeta)*(1.0 - pow( r1/(tau*r2),(r1*jw/(eps*D)) ) );
+
+    // 		if(i==20){
+    // 		    Info << "solute BC:";
+    // 		    Info << "jw = " << jw << "\t ctr_D \t" << ctrDD << "\t ctr_M \t" << ctrM << endl;
+    // 		}
+    // 		field[i] = 0.5*ctrD_;
+    // 	    }
+	    
+    // 	    #};
+    // }
+
+}
+
+// ************************************************************************* //

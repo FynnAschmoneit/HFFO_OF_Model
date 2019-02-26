@@ -1,0 +1,13 @@
+foamListTimes -rm
+rm -rf 0/*
+rm -rf constant/polyMesh
+rm -rf processor*
+rm -rf postProcessing
+rm -rf log*
+
+cp initialFields/* 0/
+blockMesh > log.blockMesh
+topoSet > log.topoSet
+decomposePar > log.decomposePar
+# # mpirun -np 4 potentialFoam -parallel > log.potentialFoam &
+mpirun -np 4 simpleScalarFoam -parallel > log.simpleFoam &
